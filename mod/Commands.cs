@@ -329,112 +329,13 @@ namespace CS1McpBridge
 
                 // ===== networks =====================================================
                 case "place_road":
-                {
-                    // Road segment between two points. Optional middle_x/middle_z makes it a
-                    // curve (a Bezier whose tangents point toward the control point).
-                    string road = a.HasKey("road") ? a["road"].Value : "Basic Road";
-                    float sx = a["start_x"].AsFloat, sz = a["start_z"].AsFloat;
-                    float ex = a["end_x"].AsFloat, ez = a["end_z"].AsFloat;
-                    bool curved = a.HasKey("middle_x") && a.HasKey("middle_z");
-                    float mx = a["middle_x"].AsFloat, mz = a["middle_z"].AsFloat;
-                    return Sim(() =>
-                    {
-                        NetInfo info = FindNet(road);
-                        if (info == null) throw new Exception("no road prefab matching '" + road + "' (try list_prefabs kind=road)");
-                        var nm = Singleton<NetManager>.instance;
-                        var sm = Singleton<SimulationManager>.instance;
-                        Vector3 s = Ground(sx, sz), e = Ground(ex, ez);
-                        Vector3 startDir, endDir;
-                        if (curved)
-                        {
-                            Vector3 m = new Vector3(mx, 0f, mz);
-                            startDir = Flat(m - s);   // tangents bow toward the control point
-                            endDir = Flat(m - e);
-                        }
-                        else
-                        {
-                            Vector3 dir = Flat(e - s);
-                            if (dir.sqrMagnitude < 0.5f) throw new Exception("start and end are too close");
-                            startDir = dir; endDir = -dir;
-                        }
-                        ushort sn = 0, en = 0, seg = 0;
-                        try
-                        {
-                            sn = MakeNode(nm, sm, info, s);
-                            en = MakeNode(nm, sm, info, e);
-                            if (!nm.CreateSegment(out seg, ref sm.m_randomizer, info, sn, en, startDir, endDir,
-                                    sm.m_currentBuildIndex, sm.m_currentBuildIndex, false))
-                                throw new Exception("CreateSegment failed");
-                            sm.m_currentBuildIndex++;
-                            return Obj("road", info.name, "segment", seg, "start_node", sn, "end_node", en, "curved", curved);
-                        }
-                        catch
-                        {
-                            if (seg != 0) nm.ReleaseSegment(seg, true);
-                            if (en != 0) nm.ReleaseNode(en);
-                            if (sn != 0) nm.ReleaseNode(sn);
-                            throw;
-                        }
-                    });
-                }
+                    return Sim(() => Roads.PlaceRoad(a));
 
                 case "place_path":
-                {
-                    // Chain road segments through a list of [x,z] waypoints with smooth
-                    // tangents — curves, roundabouts (points around a circle), grids, any shape.
-                    string road = a.HasKey("road") ? a["road"].Value : "Basic Road";
-                    JSONNode pts = a["points"];
-                    return Sim(() =>
-                    {
-                        NetInfo info = FindNet(road);
-                        if (info == null) throw new Exception("no road prefab matching '" + road + "'");
-                        int n = pts.Count;
-                        if (n < 2) throw new Exception("place_path needs at least 2 points");
-                        if (n > 64) n = 64;
-                        var nm = Singleton<NetManager>.instance;
-                        var sm = Singleton<SimulationManager>.instance;
+                    return Sim(() => Roads.PlacePath(a));
 
-                        Vector3[] P = new Vector3[n];
-                        for (int i = 0; i < n; i++)
-                            P[i] = Ground(pts[i][0].AsFloat, pts[i][1].AsFloat);
-                        // smooth tangent at each node from its neighbours (Catmull-Rom-ish)
-                        Vector3[] T = new Vector3[n];
-                        for (int i = 0; i < n; i++)
-                            T[i] = Flat(P[i < n - 1 ? i + 1 : i] - P[i > 0 ? i - 1 : i]);
-
-                        ushort[] nodes = new ushort[n];
-                        var segs = new JSONArray();
-                        var createdSegments = new System.Collections.Generic.List<ushort>();
-                        try
-                        {
-                            for (int i = 0; i < n; i++) nodes[i] = MakeNode(nm, sm, info, P[i]);
-                            for (int i = 0; i < n - 1; i++)
-                            {
-                                ushort seg;
-                                if (!nm.CreateSegment(out seg, ref sm.m_randomizer, info, nodes[i], nodes[i + 1],
-                                        T[i], -T[i + 1], sm.m_currentBuildIndex, sm.m_currentBuildIndex, false))
-                                {
-                                    if (seg != 0) createdSegments.Add(seg);
-                                    throw new Exception("CreateSegment failed at path leg " + i);
-                                }
-                                createdSegments.Add(seg);
-                                segs.Add(seg);
-                                sm.m_currentBuildIndex++;
-                            }
-                        }
-                        catch
-                        {
-                            for (int i = createdSegments.Count - 1; i >= 0; i--)
-                                nm.ReleaseSegment(createdSegments[i], true);
-                            for (int i = n - 1; i >= 0; i--)
-                                if (nodes[i] != 0) nm.ReleaseNode(nodes[i]);
-                            throw;
-                        }
-                        var r = new JSONObject();
-                        r["road"] = info.name; r["nodes"] = n; r["segments"] = segs;
-                        return (JSONNode)r;
-                    });
-                }
+                case "inspect_network":
+                    return Sim(() => Roads.Inspect(a));
 
                 // ===== prefab discovery =============================================
                 case "list_prefabs":
@@ -443,6 +344,7 @@ namespace CS1McpBridge
                     string kind = a.HasKey("kind") ? a["kind"].Value : "road";
                     string filter = a.HasKey("filter") ? a["filter"].Value : null;
                     int limit = a.HasKey("limit") ? a["limit"].AsInt : 80;
+                    if (kind == "road_variants") return Sim(() => Roads.Variants(a));
                     return Sim(() =>
                     {
                         var arr = new JSONArray();
@@ -504,7 +406,7 @@ namespace CS1McpBridge
         }
 
         // -- prefab lookup ---------------------------------------------------------
-        static NetInfo FindNet(string q)
+        internal static NetInfo FindNet(string q)
         {
             int n = PrefabCollection<NetInfo>.LoadedCount();
             NetInfo partial = null;

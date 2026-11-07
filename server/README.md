@@ -13,8 +13,35 @@ active in a loaded city for tools to work.
 | `get_city_stats` | population + money                                       |
 | `set_camera`     | frame a shot (position, angle, zoom)                    |
 | `screenshot`     | capture a PNG, returns the path                         |
+| `inspect_network` | read node height/flags, segment prefab/endpoints, and area status |
 
 See [PROTOCOL.md](../PROTOCOL.md) for the full command set.
+
+For the 0.2.0 bridge/tunnel release, use
+`list_prefabs(kind="road_variants")` to discover loaded base road families and
+their elevated/bridge/slope/tunnel variants. `place_path` accepts
+`[x,z,height]` points with height in meters relative to raw terrain. Its
+optional `modes` list requires the actual variant for each leg. Run
+`python tests/network_profile.py --road "Basic Road" --x X --z Z` first to
+check variants and purchased-area points without changing the city. Add
+`--allow-test-writes` only on an isolated save with roughly 750m × 270m of
+clear, purchased land; run again with a second loaded base road family to
+cover road diversity. Straight Basic Road and connected Medium Road, Large Road
+and Highway bridge/tunnel profiles passed in an isolated save with real node
+heights and segment prefabs.
+Use `--straight-only` with the write flags to test straight graded roads
+without an existing endpoint; omit it to test a new ground approach connected
+to the bridge/tunnel path. Both modes leave created roads in the test save and
+never save or reload it automatically. Connecting to an existing straight,
+moveable endpoint at a nearly collinear angle is refused because the native
+road tool may replace that pre-existing node and segment.
+`--profile tunnel` or `--profile bridge` runs only the selected corridor; the
+default is `both`. Entrance ramps use automatic variant selection because the
+native tool can split a ramp into ground and slope/elevated pieces. The pure
+high bridge span and deep tunnel span require those exact variants.
+Use `--row-gap METERS` (80..1000, default 220) to move the bridge corridor
+relative to the tunnel corridor when the purchased land or waterways require
+different spacing. The read-only area probes follow the same offset.
 
 ## Run
 

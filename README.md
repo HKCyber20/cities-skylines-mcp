@@ -32,6 +32,14 @@ local CS1 1.21.1-f9 installation and an isolated test save.
 The full command set (camera, weather, economy, info-views, road/building
 placement, screenshots, and more) is documented in [PROTOCOL.md](PROTOCOL.md).
 
+Version 0.2.0 adds terrain-relative road heights, native CS1
+bridge/tunnel variants, explicit endpoint-node connections, and
+`inspect_network` for checking actual constructed nodes and segments. See
+[PROTOCOL.md](PROTOCOL.md) and [README.zh-CN.md](README.zh-CN.md). Straight
+Basic Road straight profiles and connected Medium Road, Large Road and Highway
+profiles passed on an isolated test save, including actual segment prefabs,
+node elevations and shared endpoint IDs.
+
 ## Quick start
 
 1. **Mod:** build `mod/` against your local game, install, enable it, load a city

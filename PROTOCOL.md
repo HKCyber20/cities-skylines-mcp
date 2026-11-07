@@ -47,9 +47,10 @@ Failure:
 | `find_buildings`   | sim    | `filter` (optional), `limit` (default 50)         | `{ count, buildings[] }`            |
 | `bulldoze_building`| sim    | `id`                                              | `{ id, released }`                  |
 | `place_building`   | sim    | `building`, `x`, `z`, `angle` (deg)               | `{ building, id, x, z }`            |
-| `place_road`       | sim    | `start_x`, `start_z`, `end_x`, `end_z`, `road`, opt `middle_x`/`middle_z` (curve) | `{ road, segment, start_node, end_node, curved }` |
-| `place_path`       | sim    | `points` (list of `[x,z]`, 2–64), `road`          | `{ road, nodes, segments[] }`       |
-| `list_prefabs`     | sim    | `kind` (road/building), `filter`, `limit`         | `{ count, prefabs[] }`              |
+| `place_road`       | sim    | `start_x/z`, `end_x/z`, `road`, optional `start_height`, `end_height` (terrain-relative meters), `start_node`, `end_node`, `mode` (auto/ground/elevated/bridge/slope/tunnel), `middle_x/z` | `{ road, segment, segments[], segment_details[], start_node, end_node, nodes, created_nodes[], curved }` |
+| `place_path`       | sim    | `points` (list of `[x,z]` or `[x,z,height]`, 2–64), `road`, optional `modes[]` (one required variant per leg), `start_node`, `end_node` | `{ road, nodes, segments[], segment_details[], created_nodes[], start_node, end_node }` |
+| `inspect_network`  | sim    | `node_ids[]`, `segment_ids[]`, optional `x,z` for purchased-area check and `radius` (0..100m) for nearby endpoint discovery | `{ nodes[], segments[], point?, nearby_endpoints? }` |
+| `list_prefabs`     | sim    | `kind` (road/road_variants/building), `filter`, `limit` | `{ count, prefabs[] }` |
 
 **Thread** indicates which game thread the command runs on internally (sim state
 vs. render/camera). Clients don't need to care — it's handled by the bridge — but
@@ -59,6 +60,25 @@ boundaries.
 `place_road` / `place_building` take a prefab name (substring-matched against the
 loaded prefabs) — use `list_prefabs` to discover the names available in your game,
 since DLC and mods change the set.
+
+For bridges and tunnels, pass a **base RoadAI road** such as one returned by
+`list_prefabs(kind="road_variants")`. Its returned variant map reflects what is
+actually loaded; variant names are selected by the game's native NetTool from
+the supplied terrain-relative heights. Positive heights create elevated/bridge
+segments, and negative heights create slopes/tunnels. A full tunnel needs
+surface → negative → negative → surface points; a bridge needs a raised span
+long enough for that road's bridge variant. `mode`/`modes` require the actual
+selected segment type and fail if it is unavailable. Existing connections
+require explicit endpoint IDs and matching coordinates; only an endpoint with
+one current segment can be used. Near-collinear joins to a moveable existing
+endpoint are refused because CS1's native tool can replace the old road there;
+the caller may use a slight-angle approach. The optional `inspect_network(x,z)` area check
+reports whether a point lies outside the purchased area. Ground-only calls
+without new fields remain supported, including non-RoadAI path prefabs.
+
+Long entrance ramps may contain ground and elevated/slope subsegments after
+the native tool splits them. Use `auto` for those legs and inspect every
+returned segment; require `bridge` or `tunnel` on a pure high or deep span.
 
 ## Quick manual test
 

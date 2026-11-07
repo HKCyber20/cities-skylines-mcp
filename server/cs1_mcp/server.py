@@ -24,7 +24,7 @@ bridge = BridgeClient(HOST, PORT)
 
 mcp = FastMCP(
     "cs1-mcp",
-    version="0.1.1",
+    version="0.2.0",
     instructions=(
         "Controls a running Cities: Skylines (CS1) game for content creation. "
         "Requires the CS1 MCP Bridge mod active in a loaded city. Call `ping` first "
@@ -32,7 +32,9 @@ mcp = FastMCP(
         "playable area is roughly -8000..8000 on both x and z, centered at 0,0. "
         "Typical content loop: build/modify the city (place_road, place_building), "
         "frame a shot with set_camera or fly_to, set conditions (weather/time/sim "
-        "speed), then screenshot. Use list_prefabs to discover road/building names."
+        "speed), then screenshot. Use list_prefabs(kind='road_variants') to discover "
+        "which base roads support bridges and tunnels; inspect_network verifies "
+        "actual node heights, flags and segment prefabs."
     ),
 )
 
@@ -231,33 +233,90 @@ def place_road(
     road: str = "Basic Road",
     middle_x: float | None = None,
     middle_z: float | None = None,
+    start_height: float = 0.0,
+    end_height: float = 0.0,
+    start_node: int | None = None,
+    end_node: int | None = None,
+    mode: str = "auto",
 ) -> dict:
     """Place a road segment between two world coordinates.
 
     road: name (or substring) of a NetInfo prefab (use list_prefabs kind="road"),
     e.g. "Basic Road", "Highway", "Pedestrian Path".
-    middle_x/middle_z: optional control point. If given, the segment curves (bows
-    toward it) instead of running straight. Returns the new segment + node ids.
+    Heights are meters relative to terrain: positive for elevated/bridge,
+    negative for slope/tunnel. mode can require an actual variant (auto, ground,
+    elevated, bridge, slope, tunnel). Optional start_node/end_node connect exact
+    existing endpoint IDs; x/z must match that node within 0.05m. Use
+    inspect_network to verify created segments and node heights.
     """
     args: dict = dict(
-        start_x=start_x, start_z=start_z, end_x=end_x, end_z=end_z, road=road
+        start_x=start_x, start_z=start_z, end_x=end_x, end_z=end_z, road=road,
+        start_height=start_height, end_height=end_height, mode=mode,
     )
     if middle_x is not None and middle_z is not None:
         args["middle_x"] = middle_x
         args["middle_z"] = middle_z
+    if start_node is not None:
+        args["start_node"] = start_node
+    if end_node is not None:
+        args["end_node"] = end_node
     return _call("place_road", **args)
 
 
 @mcp.tool
-def place_path(points: list[list[float]], road: str = "Basic Road") -> dict:
+def place_path(
+    points: list[list[float]],
+    road: str = "Basic Road",
+    modes: list[str] | None = None,
+    start_node: int | None = None,
+    end_node: int | None = None,
+) -> dict:
     """Build a connected road through a list of [x, z] waypoints, smoothly.
 
-    points: list of [x, z] pairs (2..64). Chains nodes and segments through them
+    points: 2..64 entries of [x,z] or [x,z,height_meters_above_terrain].
+    A tunnel can use heights [0,-12,-12,0] (slope/tunnel/slope); a bridge
+    can use [0,28,28,0] with a long enough high span. `modes` can require
+    each leg's real variant. `start_node`/`end_node` connect existing endpoints.
+    Chains nodes and segments through them
     with smooth tangents, so you can build curves, roundabouts (points around a
     circle), grids, or any shape. road: NetInfo name (use list_prefabs kind="road").
     Returns the road name, node count, and the list of created segment ids.
     """
-    return _call("place_path", points=points, road=road)
+    args: dict = {"points": points, "road": road}
+    if modes is not None:
+        args["modes"] = modes
+    if start_node is not None:
+        args["start_node"] = start_node
+    if end_node is not None:
+        args["end_node"] = end_node
+    return _call("place_path", **args)
+
+
+@mcp.tool
+def inspect_network(
+    node_ids: list[int] | None = None,
+    segment_ids: list[int] | None = None,
+    x: float | None = None,
+    z: float | None = None,
+    radius: float | None = None,
+) -> dict:
+    """Read actual network nodes/segments and optional land availability.
+
+    Returns node xyz, terrain height, elevation byte, flags, prefab and attached
+    segment IDs; segments return prefab, flags and endpoint IDs. With x and z,
+    includes whether that point is outside the purchased area. With radius
+    (0..100m), also discovers up to 20 nearby road endpoints for exact-ID joins.
+    """
+    args: dict = {"node_ids": node_ids or [], "segment_ids": segment_ids or []}
+    if (x is None) != (z is None):
+        raise ToolError("provide both x and z for the area check")
+    if x is not None:
+        args.update(x=x, z=z)
+    if radius is not None:
+        if x is None:
+            raise ToolError("radius requires x and z")
+        args["radius"] = radius
+    return _call("inspect_network", **args)
 
 
 # ============================ prefab discovery ============================
@@ -265,7 +324,7 @@ def place_path(points: list[list[float]], road: str = "Basic Road") -> dict:
 def list_prefabs(kind: str = "road", filter: str | None = None, limit: int = 80) -> dict:
     """List loadable prefab names for placement.
 
-    kind: "road" (for place_road) or "building" (for place_building).
+    kind: "road", "road_variants" (base RoadAI capability map), or "building".
     filter: optional name substring. Returns {count, prefabs[]}.
     """
     args: dict = {"kind": kind, "limit": limit}
