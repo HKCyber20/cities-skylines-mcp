@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net35</TargetFramework>
     <AssemblyName>CS1McpBridge</AssemblyName>
+    <Version>0.1.1</Version>
     <LangVersion>7.3</LangVersion>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
@@ -11,6 +12,10 @@
     <!-- Build fully offline against the game's own framework assemblies (the exact
          Mono/.NET 3.5 runtime CS1 uses) — no NuGet targeting pack, no network. -->
     <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+    <!-- Use the game's Mono framework directory on machines without a net35 developer pack. -->
+    <_TargetFrameworkDirectories>$(ManagedPath)</_TargetFrameworkDirectories>
+    <_FullFrameworkReferenceAssemblyPaths>$(ManagedPath)</_FullFrameworkReferenceAssemblyPaths>
     <NoStdLib>true</NoStdLib>
     <NoConfig>true</NoConfig>
   </PropertyGroup>

@@ -24,6 +24,7 @@ bridge = BridgeClient(HOST, PORT)
 
 mcp = FastMCP(
     "cs1-mcp",
+    version="0.1.1",
     instructions=(
         "Controls a running Cities: Skylines (CS1) game for content creation. "
         "Requires the CS1 MCP Bridge mod active in a loaded city. Call `ping` first "
@@ -66,7 +67,7 @@ def set_sim_speed(speed: int = 1, paused: bool = False) -> dict:
 def set_time_of_day(hour: int, minute: int = 0) -> dict:
     """Move the in-game clock to set the sun position / lighting.
 
-    hour: 0..23, minute: 0..59. Golden-hour shots ~6-8 or ~18-20; night ~22.
+    hour: 0..23, minute: 0..59. Requires the city's day/night cycle to be enabled.
     """
     return _call("set_time_of_day", hour=hour, minute=minute)
 
@@ -85,7 +86,7 @@ def add_money(amount: int) -> dict:
 
 @mcp.tool
 def get_city_stats() -> dict:
-    """Read live city KPIs (population, money). Useful for narration and pacing."""
+    """Read population, money, effective pause/speed, game clocks and day/night hour."""
     return _call("get_city_stats")
 
 

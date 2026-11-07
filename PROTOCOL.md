@@ -32,10 +32,10 @@ Failure:
 | cmd                | thread | args                                              | result                              |
 |--------------------|--------|---------------------------------------------------|-------------------------------------|
 | `ping`             | —      | —                                                 | `"pong"`                            |
-| `set_sim_speed`    | sim    | `speed` 0–3, `paused` bool                        | `{ speed, paused }`                 |
-| `set_time_of_day`  | sim    | `hour` 0–23, `minute` 0–59                        | `{ hour, minute }`                  |
+| `set_sim_speed`    | sim    | `speed` 0–3, `paused` bool                        | `{ speed, paused, effective_speed }` |
+| `set_time_of_day`  | sim    | `hour` 0–23, `minute` 0–59                        | `{ hour, minute }`; error if day/night is disabled |
 | `add_money`        | sim    | `amount` (whole units; negative removes)          | `{ added }`                         |
-| `get_city_stats`   | sim    | —                                                 | `{ population, money }`             |
+| `get_city_stats`   | sim    | —                                                 | `{ population, money, paused, speed, selected_speed, game_time, simulation_time, day_time_hour, day_night_enabled }` |
 | `set_weather`      | sim    | `rain` 0–1, `fog` 0–1 (both optional)             | `{ rain, fog }`                     |
 | `set_camera`       | main   | `x`, `z`, `angle_x`, `angle_y`, `zoom`            | `{ x, z, zoom }`                    |
 | `get_camera`       | main   | —                                                 | `{ x, z, angle_x, angle_y, zoom }`  |

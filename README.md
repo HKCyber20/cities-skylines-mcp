@@ -26,6 +26,9 @@ MCP client (Claude, etc.)
 > monolithic Unity build). This repo is the open bridge and server only;
 > content/orchestration logic lives elsewhere.
 
+This fork also has a [Windows verification record](README.zh-CN.md) using a
+local CS1 1.21.1-f9 installation and an isolated test save.
+
 The full command set (camera, weather, economy, info-views, road/building
 placement, screenshots, and more) is documented in [PROTOCOL.md](PROTOCOL.md).
 
@@ -39,8 +42,8 @@ placement, screenshots, and more) is documented in [PROTOCOL.md](PROTOCOL.md).
 
 ## Build the mod
 
-Requires the .NET SDK and a local CS1 install. No external packages or NuGet
-restore: it compiles fully offline against the game's own framework and Unity
+Requires the .NET SDK and a local CS1 install. No external packages or online
+NuGet downloads: an offline restore runs before compilation against the game's framework and Unity
 assemblies (game DLLs are referenced, never vendored, per Paradox terms).
 
 ```bash
@@ -51,6 +54,29 @@ dotnet build mod/CS1McpBridge.csproj -c Release -p:ManagedPath="/path/to/Cities_
 
 Copy `CS1McpBridge.dll` into the game's `Addons/Mods/CS1McpBridge/` folder and
 enable it in Content Manager, Mods. No other mods required.
+
+### Windows (Steam)
+
+Use PowerShell 7 and the .NET SDK. The helper searches Steam's registered install
+and `libraryfolders.vdf` for CS1, including libraries on other drives. If Steam
+cannot be detected, pass `-GamePath` (the directory containing `Cities.exe`) or
+set `CS1_GAME_PATH`. You can instead pass `-ManagedPath` directly.
+
+```powershell
+pwsh -File scripts/windows-mod.ps1 -Action Build -GamePath 'X:\Steam\steamapps\common\Cities_Skylines'
+# Close the game before installing or uninstalling:
+pwsh -File scripts/windows-mod.ps1 -Action Install -GamePath 'X:\Steam\steamapps\common\Cities_Skylines'
+pwsh -File scripts/windows-mod.ps1 -Action Uninstall
+```
+
+The helper installs only the mod DLL under
+`%LOCALAPPDATA%\Colossal Order\Cities_Skylines\Addons\Mods\CS1McpBridge`.
+If a DLL already exists, it preserves a `.dll.bak` copy in
+`Addons\.cs1mcp-backups` (outside the scanned Mods directory) and restores
+it on uninstall. Pass `-ModsPath` to target a different Mods directory. A build
+uses the local game assemblies and never copies them into the repository.
+
+For the MCP server and Codex setup, see [server/README.md](server/README.md).
 
 ## License
 

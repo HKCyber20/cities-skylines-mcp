@@ -16,7 +16,7 @@
     <ManagedPath>$(HOME)/Library/Application Support/Steam/steamapps/common/Cities_Skylines/Cities.app/Contents/Resources/Data/Managed</ManagedPath>
   </PropertyGroup>
 
-  <!-- Windows default -->
+  <!-- Windows fallback. scripts/windows-mod.ps1 discovers non-default Steam libraries. -->
   <PropertyGroup Condition="'$(ManagedPath)' == '' and '$(OS)' == 'Windows_NT'">
     <ManagedPath>C:/Program Files (x86)/Steam/steamapps/common/Cities_Skylines/Cities_Data/Managed</ManagedPath>
   </PropertyGroup>

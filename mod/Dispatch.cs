@@ -22,6 +22,50 @@ namespace CS1McpBridge
     {
         static readonly object _gate = new object();
         static readonly Queue<Action> _mainQueue = new Queue<Action>();
+        static readonly HashSet<PendingJob> _pending = new HashSet<PendingJob>();
+        static int _generation;
+        [ThreadStatic] static int _requestGeneration;
+        [ThreadStatic] static bool _requestBound;
+
+        public static int CurrentGeneration
+        {
+            get { lock (_gate) return _generation; }
+        }
+
+        public static void BindRequest(int generation)
+        {
+            _requestGeneration = generation;
+            _requestBound = true;
+        }
+
+        public static void UnbindRequest() { _requestBound = false; }
+
+        sealed class PendingJob
+        {
+            public readonly ManualResetEvent Done = new ManualResetEvent(false);
+            public int Generation;
+            public bool Started;
+            public bool Cancelled;
+        }
+
+        /// <summary>Cancel work that has not started before a city unloads.</summary>
+        public static void InvalidatePending()
+        {
+            lock (_gate)
+            {
+                _generation++;
+                _mainQueue.Clear();
+                var cancelled = new List<PendingJob>();
+                foreach (var item in _pending)
+                {
+                    if (item.Started) continue;
+                    item.Cancelled = true;
+                    item.Done.Set();
+                    cancelled.Add(item);
+                }
+                foreach (var item in cancelled) _pending.Remove(item);
+            }
+        }
 
         /// <summary>Drains the main-thread queue. Called every frame from Threading.OnUpdate.</summary>
         public static void PumpMainThread()
@@ -43,22 +87,62 @@ namespace CS1McpBridge
         {
             T result = default(T);
             Exception captured = null;
-            var done = new ManualResetEvent(false);
+            var item = new PendingJob();
 
             Action job = () =>
             {
+                lock (_gate)
+                {
+                    if (item.Cancelled || item.Generation != _generation)
+                    {
+                        item.Cancelled = true;
+                        _pending.Remove(item);
+                        item.Done.Set();
+                        return;
+                    }
+                    item.Started = true;
+                }
                 try { result = work(); }
                 catch (Exception e) { captured = e; }
-                finally { done.Set(); }
+                finally
+                {
+                    item.Done.Set();
+                    lock (_gate) _pending.Remove(item);
+                }
             };
 
+            lock (_gate)
+            {
+                item.Generation = _requestBound ? _requestGeneration : _generation;
+                if (item.Generation != _generation)
+                    throw new OperationCanceledException("Request belongs to an unloaded city.");
+                _pending.Add(item);
+                if (thread == RunOn.Main) _mainQueue.Enqueue(job);
+            }
             if (thread == RunOn.Sim)
-                Singleton<SimulationManager>.instance.AddAction(job);
-            else
-                lock (_gate) _mainQueue.Enqueue(job);
+            {
+                try { Singleton<SimulationManager>.instance.AddAction(job); }
+                catch { lock (_gate) _pending.Remove(item); throw; }
+            }
 
-            if (!done.WaitOne(timeoutMs))
-                throw new TimeoutException("Command timed out on the " + thread + " thread.");
+            if (!item.Done.WaitOne(timeoutMs))
+            {
+                lock (_gate)
+                {
+                    if (!item.Started)
+                    {
+                        item.Cancelled = true;
+                        _pending.Remove(item);
+                    }
+                    else throw new TimeoutException("Command timed out on the " + thread +
+                        " thread after starting; outcome unknown, check game state before retrying.");
+                }
+                throw new TimeoutException("Command timed out on the " + thread +
+                    " thread before starting; queued work was cancelled.");
+            }
+            lock (_gate)
+                if (item.Cancelled)
+                    throw new OperationCanceledException("City unloaded before the " + thread + " command started.");
             if (captured != null) throw captured;
             return result;
         }

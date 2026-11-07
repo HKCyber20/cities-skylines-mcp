@@ -18,6 +18,9 @@ obj/
 __pycache__/
 *.pyc
 .venv/
+.dotnet-home/
+.nuget-packages/
+.appdata/
 dist/
 *.egg-info/
 

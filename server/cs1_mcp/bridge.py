@@ -2,8 +2,8 @@
 
 Speaks the newline-delimited JSON protocol documented in PROTOCOL.md. One
 request per line out, one response per line in. A single connection is reused
-and guarded by a lock, so request/response pairing is guaranteed without needing
-to match on `id`. Dropped connections are transparently reconnected once.
+and guarded by a lock. Responses are checked against request IDs. An uncertain
+write is never replayed automatically.
 """
 
 from __future__ import annotations
@@ -66,25 +66,30 @@ class BridgeClient:
 
             try:
                 line = self._roundtrip(payload)
-            except (OSError, socket.timeout):
-                # Reconnect once — the game may have reloaded the city.
+            except (OSError, socket.timeout) as exc:
+                # The request may already have reached the game. Never replay a
+                # write command after a timeout or a dropped connection.
                 self._reset()
-                try:
-                    line = self._roundtrip(payload)
-                except (OSError, socket.timeout) as exc:
-                    self._reset()
-                    raise BridgeError(
-                        f"cannot reach the bridge at {self._host}:{self._port} "
-                        f"(is Cities: Skylines running with a city loaded?): {exc}"
-                    ) from exc
+                raise BridgeError(
+                    f"bridge request {self._id} failed at {self._host}:{self._port}; "
+                    f"the command may have executed, so check game state before retrying: {exc}"
+                ) from exc
 
             if not line:
                 self._reset()
                 raise BridgeError(
-                    "connection closed by the game (no city loaded, or mod disabled?)"
+                    "connection closed by the game; the command may have executed, "
+                    "so check game state before retrying"
                 )
 
-            resp = json.loads(line)
+            try:
+                resp = json.loads(line)
+            except (ValueError, TypeError) as exc:
+                self._reset()
+                raise BridgeError(f"invalid bridge response for request {self._id}: {exc}") from exc
+            if not isinstance(resp, dict) or resp.get("id") != self._id:
+                self._reset()
+                raise BridgeError(f"bridge response id mismatch for request {self._id}")
             if not resp.get("ok"):
                 raise BridgeError(resp.get("error", "unknown bridge error"))
             return resp.get("result")

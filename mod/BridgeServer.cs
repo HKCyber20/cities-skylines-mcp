@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -18,6 +19,8 @@ namespace CS1McpBridge
         static TcpListener _listener;
         static Thread _accept;
         static volatile bool _running;
+        static readonly object _clientsGate = new object();
+        static readonly HashSet<TcpClient> _clients = new HashSet<TcpClient>();
 
         public static void Start()
         {
@@ -39,7 +42,8 @@ namespace CS1McpBridge
             }
 
             _running = true;
-            _accept = new Thread(AcceptLoop) { IsBackground = true, Name = "CS1McpBridge.Accept" };
+            var listener = _listener;
+            _accept = new Thread(() => AcceptLoop(listener)) { IsBackground = true, Name = "CS1McpBridge.Accept" };
             _accept.Start();
             Log.Info("listening on 127.0.0.1:" + port);
         }
@@ -48,38 +52,63 @@ namespace CS1McpBridge
         {
             if (!_running) return;
             _running = false;
+            Dispatch.InvalidatePending();
             try { _listener?.Stop(); } catch { }
             _listener = null;
+            lock (_clientsGate)
+            {
+                foreach (var client in _clients) try { client.Close(); } catch { }
+                _clients.Clear();
+            }
             Log.Info("stopped");
         }
 
-        static void AcceptLoop()
+        static void AcceptLoop(TcpListener listener)
         {
-            while (_running)
+            while (_running && Object.ReferenceEquals(_listener, listener))
             {
                 TcpClient client;
-                try { client = _listener.AcceptTcpClient(); }
-                catch { if (_running) continue; else break; }
+                try { client = listener.AcceptTcpClient(); }
+                catch { if (_running && Object.ReferenceEquals(_listener, listener)) continue; else break; }
 
-                var worker = new Thread(() => Serve(client)) { IsBackground = true };
+                lock (_clientsGate)
+                {
+                    if (!_running || !Object.ReferenceEquals(_listener, listener)) { client.Close(); break; }
+                    _clients.Add(client);
+                }
+
+                int generation = Dispatch.CurrentGeneration;
+                var worker = new Thread(() => Serve(client, listener, generation)) { IsBackground = true };
                 worker.Start();
             }
         }
 
-        static void Serve(TcpClient client)
+        static void Serve(TcpClient client, TcpListener listener, int generation)
         {
-            using (client)
-            using (var stream = client.GetStream())
-            using (var reader = new StreamReader(stream, Encoding.UTF8))
-            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" })
+            Dispatch.BindRequest(generation);
+            try
             {
-                string line;
-                while (_running && (line = reader.ReadLine()) != null)
+                using (client)
+                using (var stream = client.GetStream())
+                using (var reader = new StreamReader(stream, Encoding.UTF8))
+                using (var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" })
                 {
-                    if (line.Length == 0) continue;
-                    string response = Commands.Handle(line);
-                    writer.WriteLine(response);
+                    string line;
+                    while (_running && Object.ReferenceEquals(_listener, listener) && (line = reader.ReadLine()) != null)
+                    {
+                        if (line.Length == 0) continue;
+                        if (!_running || !Object.ReferenceEquals(_listener, listener)) break;
+                        string response = Commands.Handle(line);
+                        if (_running && Object.ReferenceEquals(_listener, listener)) writer.WriteLine(response);
+                    }
                 }
+            }
+            catch (IOException) { /* client disconnected or level unloaded */ }
+            catch (ObjectDisposedException) { /* Stop closed the client */ }
+            finally
+            {
+                Dispatch.UnbindRequest();
+                lock (_clientsGate) _clients.Remove(client);
             }
         }
     }
