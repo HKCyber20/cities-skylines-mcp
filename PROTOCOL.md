@@ -80,6 +80,28 @@ Long entrance ramps may contain ground and elevated/slope subsegments after
 the native tool splits them. Use `auto` for those legs and inspect every
 returned segment; require `bridge` or `tunnel` on a pure high or deep span.
 
+Version 0.2.1 also recognizes a loaded **standalone RoadBridgeAI road network**
+that is not referenced as a variant by another loaded RoadAI base. In
+`list_prefabs(kind="road_variants")` it has `standalone_bridge: true`, its own
+name as `bridge`, and empty `ground`, `elevated`, `slope`, and `tunnel` fields.
+Use the exact standalone name with `mode="bridge"` or `auto`, and ensure
+**every** endpoint is above terrain. A newly created point needs a positive
+height argument; an explicit existing node uses its actual stored positive
+elevation, so the caller need not repeat that height. `inspect_network` reports `standalone_bridge` on queried nodes and
+segments. A separate ground/elevated approach can be built from a normal road
+and joined by explicit endpoint ID. These networks do not gain fabricated
+ground or tunnel variants.
+
+Some RoadAI bases set `m_useFixedHeight`. For those, CS1's NetTool skips the
+parent `GetInfo` variant selection. The bridge now asks the **parent RoadAI**
+to select a real loaded child for each leg and passes that child to the same
+native test/build path. `road_variants` reports `fixed_height: true` and
+`variant_selection: "parent_get_info_then_native_child"` for this case;
+ordinary bases report `"native_get_info"`. The caller still supplies only
+the parent road name. An explicit `mode="bridge"` succeeds only if the actual
+created segment uses the parent's real bridge prefab. Geometry and collision
+can still be rejected by the native tool.
+
 ## Quick manual test
 
 ```bash

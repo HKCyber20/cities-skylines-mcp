@@ -24,7 +24,7 @@ bridge = BridgeClient(HOST, PORT)
 
 mcp = FastMCP(
     "cs1-mcp",
-    version="0.2.0",
+    version="0.2.1",
     instructions=(
         "Controls a running Cities: Skylines (CS1) game for content creation. "
         "Requires the CS1 MCP Bridge mod active in a loaded city. Call `ping` first "
@@ -245,7 +245,9 @@ def place_road(
     e.g. "Basic Road", "Highway", "Pedestrian Path".
     Heights are meters relative to terrain: positive for elevated/bridge,
     negative for slope/tunnel. mode can require an actual variant (auto, ground,
-    elevated, bridge, slope, tunnel). Optional start_node/end_node connect exact
+    elevated, bridge, slope, tunnel). A standalone RoadBridgeAI network requires
+    positive heights at both ends (including an existing endpoint) and only
+    auto/bridge mode; it has no ground or tunnel variant. Optional start_node/end_node connect exact
     existing endpoint IDs; x/z must match that node within 0.05m. Use
     inspect_network to verify created segments and node heights.
     """
@@ -276,7 +278,9 @@ def place_path(
     points: 2..64 entries of [x,z] or [x,z,height_meters_above_terrain].
     A tunnel can use heights [0,-12,-12,0] (slope/tunnel/slope); a bridge
     can use [0,28,28,0] with a long enough high span. `modes` can require
-    each leg's real variant. `start_node`/`end_node` connect existing endpoints.
+    each leg's real variant. For standalone RoadBridgeAI, every point must
+    have positive height and only auto/bridge modes are supported.
+    `start_node`/`end_node` connect existing endpoints.
     Chains nodes and segments through them
     with smooth tangents, so you can build curves, roundabouts (points around a
     circle), grids, or any shape. road: NetInfo name (use list_prefabs kind="road").
@@ -302,7 +306,8 @@ def inspect_network(
 ) -> dict:
     """Read actual network nodes/segments and optional land availability.
 
-    Returns node xyz, terrain height, elevation byte, flags, prefab and attached
+    Returns node xyz, terrain height, elevation byte, flags, prefab, standalone
+    bridge classification and attached
     segment IDs; segments return prefab, flags and endpoint IDs. With x and z,
     includes whether that point is outside the purchased area. With radius
     (0..100m), also discovers up to 20 nearby road endpoints for exact-ID joins.
@@ -324,7 +329,9 @@ def inspect_network(
 def list_prefabs(kind: str = "road", filter: str | None = None, limit: int = 80) -> dict:
     """List loadable prefab names for placement.
 
-    kind: "road", "road_variants" (base RoadAI capability map), or "building".
+    kind: "road", "road_variants" (base RoadAI map plus standalone RoadBridgeAI),
+    or "building". Standalone entries have bridge=self and empty ground/elevated.
+    Fixed-height RoadAI entries report how their real child is selected.
     filter: optional name substring. Returns {count, prefabs[]}.
     """
     args: dict = {"kind": kind, "limit": limit}

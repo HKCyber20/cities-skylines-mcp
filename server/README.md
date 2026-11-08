@@ -35,6 +35,7 @@ to the bridge/tunnel path. Both modes leave created roads in the test save and
 never save or reload it automatically. Connecting to an existing straight,
 moveable endpoint at a nearly collinear angle is refused because the native
 road tool may replace that pre-existing node and segment.
+
 `--profile tunnel` or `--profile bridge` runs only the selected corridor; the
 default is `both`. Entrance ramps use automatic variant selection because the
 native tool can split a ramp into ground and slope/elevated pieces. The pure
@@ -42,6 +43,16 @@ high bridge span and deep tunnel span require those exact variants.
 Use `--row-gap METERS` (80..1000, default 220) to move the bridge corridor
 relative to the tunnel corridor when the purchased land or waterways require
 different spacing. The read-only area probes follow the same offset.
+
+Version 0.2.1 additionally recognizes standalone `RoadBridgeAI` road networks
+without inventing a ground or tunnel variant. Use
+`list_prefabs(kind="road_variants")` to identify `standalone_bridge=true`, then
+build a positive-height bridge from an elevated endpoint. For fixed-height
+`RoadAI` bases, the server still accepts the base name; the mod selects a real
+loaded child variant for each leg. The 2-way Massongex standalone bridge and
+three loaded fixed/normal RoadAI bridge assets passed isolated-save build and
+readback tests. Third-party model appearance and traffic still require visual
+and operational checks; the tested Wiwi truss disappears at distant zoom.
 
 ## Run
 

@@ -40,6 +40,14 @@ Basic Road straight profiles and connected Medium Road, Large Road and Highway
 profiles passed on an isolated test save, including actual segment prefabs,
 node elevations and shared endpoint IDs.
 
+Version 0.2.1 adds explicit support for standalone RoadBridgeAI road networks
+with positive-height endpoints and fixed-height RoadAI parents that select real
+child prefabs. Ponte Suebia, Brick Road v2, Massongex 2-way and Wiwi steel
+truss bridge assets passed isolated-save construction and readback tests. See
+[PROTOCOL.md](PROTOCOL.md) for strict placement rules and
+[README.zh-CN.md](README.zh-CN.md) for verification limits. The Wiwi truss is
+visible nearby but disappears at long zoom levels in the tested asset version.
+
 ## Quick start
 
 1. **Mod:** build `mod/` against your local game, install, enable it, load a city

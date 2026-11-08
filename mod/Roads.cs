@@ -55,7 +55,39 @@ namespace CS1McpBridge
         {
             NetInfo info = Commands.FindNet(name);
             if (info == null) throw new ArgumentException("road prefab not found: " + name);
+            if (info.m_netAI is RoadBridgeAI)
+            {
+                if (!IsStandaloneBridge(info, ReferencedRoadVariants()))
+                    throw new NotSupportedException("this bridge is a variant of another road or is not a road; " +
+                        "choose its RoadAI base from list_prefabs kind=road_variants");
+            }
             return info;
+        }
+
+        static HashSet<NetInfo> ReferencedRoadVariants()
+        {
+            var referenced = new HashSet<NetInfo>();
+            int count = PrefabCollection<NetInfo>.LoadedCount();
+            for (int i = 0; i < count; i++)
+            {
+                var info = PrefabCollection<NetInfo>.GetLoaded((uint)i);
+                var ai = info == null ? null : info.m_netAI as RoadAI;
+                if (ai == null) continue;
+                if (ai.m_elevatedInfo != null) referenced.Add(ai.m_elevatedInfo);
+                if (ai.m_bridgeInfo != null) referenced.Add(ai.m_bridgeInfo);
+                if (ai.m_slopeInfo != null) referenced.Add(ai.m_slopeInfo);
+                if (ai.m_tunnelInfo != null) referenced.Add(ai.m_tunnelInfo);
+                if (ai.m_connectedInfo != null) referenced.Add(ai.m_connectedInfo);
+                if (ai.m_connectedElevatedInfo != null) referenced.Add(ai.m_connectedElevatedInfo);
+            }
+            return referenced;
+        }
+
+        static bool IsStandaloneBridge(NetInfo info, HashSet<NetInfo> referenced)
+        {
+            return info != null && info.m_netAI is RoadBridgeAI &&
+                info.m_class != null && info.m_class.m_service == ItemClass.Service.Road &&
+                !referenced.Contains(info);
         }
 
         static NetTool.ControlPoint Point(float x, float z, float height, int existingId)
@@ -213,7 +245,7 @@ namespace CS1McpBridge
 
         static string Variant(RoadAI ai, NetInfo info)
         {
-            if (ai == null) return "ground";
+            if (ai == null) return info != null && info.m_netAI is RoadBridgeAI ? "bridge" : "ground";
             if (info == ai.m_bridgeInfo && info != null) return "bridge";
             if (info == ai.m_tunnelInfo && info != null) return "tunnel";
             if (info == ai.m_slopeInfo && info != null) return "slope";
@@ -221,31 +253,64 @@ namespace CS1McpBridge
             return "ground";
         }
 
-        static void RequireMode(string mode, RoadAI ai, NetInfo baseInfo,
+        static bool IsLoaded(NetInfo info)
+        {
+            if (info == null) return false;
+            int count = PrefabCollection<NetInfo>.LoadedCount();
+            for (int i = 0; i < count; i++)
+                if (PrefabCollection<NetInfo>.GetLoaded((uint)i) == info) return true;
+            return false;
+        }
+
+        static bool IsParentInfoOrVariant(RoadAI ai, NetInfo baseInfo, NetInfo selected)
+        {
+            return selected == baseInfo || selected == ai.m_elevatedInfo ||
+                selected == ai.m_bridgeInfo || selected == ai.m_slopeInfo ||
+                selected == ai.m_tunnelInfo || selected == ai.m_connectedInfo ||
+                selected == ai.m_connectedElevatedInfo;
+        }
+
+        static NetInfo RequireMode(string mode, RoadAI ai, NetInfo baseInfo,
             NetTool.ControlPoint start, NetTool.ControlPoint end, bool curved)
         {
             if (mode != "ground" && mode != "elevated" && mode != "bridge" &&
                 mode != "slope" && mode != "tunnel" && mode != "auto")
                 throw new ArgumentException("mode must be auto, ground, elevated, bridge, slope or tunnel");
+            if (baseInfo.m_netAI is RoadBridgeAI)
+            {
+                if (mode != "auto" && mode != "bridge")
+                    throw new NotSupportedException("standalone RoadBridgeAI supports only auto/bridge mode");
+                if (start.m_elevation <= 0.1f || end.m_elevation <= 0.1f)
+                    throw new ArgumentException("standalone bridge endpoints, including existing nodes, require positive terrain-relative height");
+                return baseInfo;
+            }
             if (ai == null)
             {
                 if ((mode != "auto" && mode != "ground") ||
                     Mathf.Abs(start.m_elevation) > 0.1f || Mathf.Abs(end.m_elevation) > 0.1f)
                     throw new NotSupportedException("non-RoadAI prefabs support ground placement only");
-                return;
+                return baseInfo;
             }
-            if (mode == "auto") return;
-            if (baseInfo.m_useFixedHeight && mode != "ground")
-                throw new ArgumentException("this road has fixed height and cannot select an elevation variant");
+            if (mode == "auto" && !baseInfo.m_useFixedHeight) return baseInfo;
             float length = Vector3.Distance(start.m_position, end.m_position);
             bool enableDouble = length >= 100f;
             ToolBase.ToolErrors errors = ToolBase.ToolErrors.None;
             NetInfo selected = ai.GetInfo(Mathf.Min(start.m_elevation, end.m_elevation),
                 Mathf.Max(start.m_elevation, end.m_elevation), length, false, false,
                 curved, enableDouble, ref errors);
+            if (baseInfo.m_useFixedHeight &&
+                (errors != ToolBase.ToolErrors.None || !IsParentInfoOrVariant(ai, baseInfo, selected) || !IsLoaded(selected)))
+                throw new ArgumentException("fixed-height road did not resolve a loaded parent variant (" + errors + ")");
             if (errors != ToolBase.ToolErrors.None || selected == null || Variant(ai, selected) != mode)
-                throw new ArgumentException("requested " + mode + " variant is unavailable at these heights/length; " +
-                    "RoadAI selected " + (selected == null ? "none" : Variant(ai, selected)) + " (" + errors + ")");
+            {
+                if (mode != "auto")
+                    throw new ArgumentException("requested " + mode + " variant is unavailable at these heights/length; " +
+                        "RoadAI selected " + (selected == null ? "none" : Variant(ai, selected)) + " (" + errors + ")");
+            }
+            // NetTool skips GetInfo when the parent prefab has fixed height.
+            // Use the real variant selected by that same parent's RoadAI;
+            // NetTool still performs geometry, collision and connection tests.
+            return baseInfo.m_useFixedHeight ? selected : baseInfo;
         }
 
         static ushort BuildLeg(NetInfo info, NetTool.ControlPoint start,
@@ -323,7 +388,7 @@ namespace CS1McpBridge
                     var start = points[i];
                     var end = points[i + 1];
                     bool isCurved = curved && points.Count == 2;
-                    RequireMode(modes[i], ai, road, start, end, isCurved);
+                    NetInfo legInfo = RequireMode(modes[i], ai, road, start, end, isCurved);
                     float mx = isCurved ? middleX : (start.m_position.x + end.m_position.x) * 0.5f;
                     float mz = isCurved ? middleZ : (start.m_position.z + end.m_position.z) * 0.5f;
                     var middle = Point(mx, mz, (start.m_elevation + end.m_elevation) * 0.5f, 0);
@@ -340,7 +405,7 @@ namespace CS1McpBridge
                         (nm.m_nodes.m_buffer[start.m_node].m_flags & NetNode.Flags.Moveable) != 0;
                     if (protectOwned)
                         nm.m_nodes.m_buffer[start.m_node].m_flags &= ~NetNode.Flags.Moveable;
-                    try { lastNode = BuildLeg(road, start, middle, end, out firstNode); }
+                    try { lastNode = BuildLeg(legInfo, start, middle, end, out firstNode); }
                     finally
                     {
                         if (protectOwned &&
@@ -446,19 +511,32 @@ namespace CS1McpBridge
             int limit = a.HasKey("limit") ? Mathf.Clamp(a["limit"].AsInt, 0, 100) : 50;
             var arr = new JSONArray();
             int count = PrefabCollection<NetInfo>.LoadedCount();
+            var referenced = ReferencedRoadVariants();
             for (int i = 0; i < count && arr.Count < limit; i++)
             {
                 NetInfo baseInfo = PrefabCollection<NetInfo>.GetLoaded((uint)i);
-                if (baseInfo == null || !(baseInfo.m_netAI is RoadAI)) continue;
+                if (baseInfo == null) continue;
                 if (!string.IsNullOrEmpty(filter) && baseInfo.name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0) continue;
-                RoadAI ai = (RoadAI)baseInfo.m_netAI;
-                arr.Add(Obj("road", baseInfo.name,
-                    "ground", baseInfo.name,
-                    "elevated", ai.m_elevatedInfo == null ? "" : ai.m_elevatedInfo.name,
-                    "bridge", ai.m_bridgeInfo == null ? "" : ai.m_bridgeInfo.name,
-                    "slope", ai.m_slopeInfo == null ? "" : ai.m_slopeInfo.name,
-                    "tunnel", ai.m_tunnelInfo == null ? "" : ai.m_tunnelInfo.name,
-                    "bridge_requires_double", ai.m_bridgeInfo != null && ai.m_bridgeInfo.m_netAI.RequireDoubleSegments()));
+                RoadAI ai = baseInfo.m_netAI as RoadAI;
+                if (ai != null)
+                    arr.Add(Obj("road", baseInfo.name,
+                        "ground", baseInfo.name,
+                        "elevated", ai.m_elevatedInfo == null ? "" : ai.m_elevatedInfo.name,
+                        "bridge", ai.m_bridgeInfo == null ? "" : ai.m_bridgeInfo.name,
+                        "slope", ai.m_slopeInfo == null ? "" : ai.m_slopeInfo.name,
+                        "tunnel", ai.m_tunnelInfo == null ? "" : ai.m_tunnelInfo.name,
+                        "bridge_requires_double", ai.m_bridgeInfo != null && ai.m_bridgeInfo.m_netAI.RequireDoubleSegments(),
+                        "fixed_height", baseInfo.m_useFixedHeight,
+                        "variant_selection", baseInfo.m_useFixedHeight ? "parent_get_info_then_native_child" : "native_get_info",
+                        "standalone_bridge", false));
+                else if (IsStandaloneBridge(baseInfo, referenced))
+                    arr.Add(Obj("road", baseInfo.name,
+                        "ground", "", "elevated", "", "bridge", baseInfo.name,
+                        "slope", "", "tunnel", "",
+                        "bridge_requires_double", baseInfo.m_netAI.RequireDoubleSegments(),
+                        "fixed_height", baseInfo.m_useFixedHeight,
+                        "variant_selection", "standalone_bridge",
+                        "standalone_bridge", true));
             }
             return Obj("count", arr.Count, "prefabs", arr);
         }
@@ -466,6 +544,7 @@ namespace CS1McpBridge
         public static JSONNode Inspect(JSONNode a)
         {
             var nm = Singleton<NetManager>.instance;
+            var referenced = ReferencedRoadVariants();
             var nodes = new JSONArray();
             var segments = new JSONArray();
             JSONNode nodeIds = a["node_ids"], segmentIds = a["segment_ids"];
@@ -486,6 +565,7 @@ namespace CS1McpBridge
                     "elevation", (int)node.m_elevation, "flags", node.m_flags.ToString(),
                     "building_id", (int)node.m_building,
                     "prefab", node.Info == null ? "" : node.Info.name,
+                    "standalone_bridge", IsStandaloneBridge(node.Info, referenced),
                     "segments", connected));
             }
             for (int i = 0; i < segmentIds.Count; i++)
@@ -496,6 +576,7 @@ namespace CS1McpBridge
                 if ((segment.m_flags & NetSegment.Flags.Created) == 0) continue;
                 segments.Add(Obj("id", id, "prefab", segment.Info == null ? "" : segment.Info.name,
                     "flags", segment.m_flags.ToString(),
+                    "standalone_bridge", IsStandaloneBridge(segment.Info, referenced),
                     "start_node", (int)segment.m_startNode, "end_node", (int)segment.m_endNode));
             }
             var result = new JSONObject();
